@@ -27,10 +27,10 @@ OCHRE_600 = "#e64626"; OCHRE_500 = "#ef6a4d"; OCHRE_300 = "#f4a98f"
 OCHRE_50 = "#fdf1ec"; INK = "#141414"; MUTED = "#141414"
 LINE = "#e3ded9"; CANVAS = "#ffffff"; WHITE = "#ffffff"
 
-# One ochre family (dark / mid / light), not three different hues.
-STAPH_C = "#8c2a14"   # dark ochre
-ECOLI_C = "#e64626"   # ochre
-SALM_C = "#f0a085"    # light ochre
+# One ochre family, dimmed (muted dark / mid / light), not three bright hues.
+STAPH_C = "#8c3b2b"   # dimmed dark ochre
+ECOLI_C = "#c47050"   # dimmed mid ochre
+SALM_C = "#e6bda9"    # dimmed light ochre
 
 ALERT_COLORS = {
     "Staphylococcus (OX/FOX)": STAPH_C,
@@ -119,6 +119,13 @@ st.markdown(f"""
         border:1px solid {LINE}; box-shadow:0 3px 14px rgba(46,45,44,0.05); }}
     .legend-chip {{ display:inline-block; width:14px; height:14px; border-radius:4px;
         margin-right:8px; vertical-align:middle; }}
+    .sb-row {{ margin-bottom:0.85rem; }}
+    .sb-tag {{ font-size:0.66rem; font-weight:800; text-transform:uppercase;
+        letter-spacing:0.05em; padding:1px 7px; border-radius:999px;
+        background:{OCHRE_50}; color:{OCHRE_800}; }}
+    .sb-sub {{ display:block; font-size:0.86rem; color:#8a7f79;
+        margin-left:22px; margin-top:1px; }}
+    .sb-key {{ color:{OCHRE_800}; font-size:1.05rem; font-weight:800; margin:0.2rem 0 0.5rem 0; }}
     hr {{ border-color:{LINE}; }}
     .kpi {{ background:{WHITE}; border:1px solid {LINE}; border-radius:16px;
         padding:1.1rem 1.25rem; box-shadow:0 3px 14px rgba(46,45,44,0.06);
@@ -184,7 +191,7 @@ TRIGGER_ABX = ["AMC30", "ENR5", "OX1", "FOX30"]
 # time chart but is not shown as a column: the date already carries the year.)
 CORE_COLS = ["Date Received", "CP Number", "Clinic", "Organism", "Alert", "Reason"]
 # Patient / sample metadata.
-META_COLS = ["Species", "Breed", "Sex", "Neutered", "Sample", "Site"]
+META_COLS = ["Species", "Breed", "Sex", "Neutered", "Sample", "Site", "Sample Site (Detailed)"]
 # Full record layout (used for the Excel download).
 RECORD_ORDER = CORE_COLS + META_COLS + CANON_ABBREVS
 
@@ -239,6 +246,30 @@ def parse_sex(row):
     sex = "M" if s[0] == "M" else ("F" if s[0] == "F" else s)
     neutered = "Yes" if s in ("MN", "FS", "FN", "MC", "DESEXED", "NEUTERED", "SPAYED") else "No"
     return sex, neutered
+
+
+def clean_site(raw):
+    """Split site into main site + detail, mirroring the original AST pipeline:
+    a parenthetical (or the text after the first separator) becomes the detail."""
+    s = raw.strip() if raw else ""
+    if not s or s.upper() in ("NA", "N/A"):
+        return "NA", "NA"
+    detail = "NA"
+    m = re.search(r'^(.*?)\s*\((.*?)\)', s)
+    if m:
+        s = m.group(1).strip()
+        dp = m.group(2).strip()
+        if dp:
+            detail = dp[0].upper() + dp[1:]
+    else:
+        parts = re.split(r'[,/:\-;|]', s, maxsplit=1)
+        if len(parts) > 1:
+            s = parts[0].strip()
+            dp = parts[1].strip()
+            if dp:
+                detail = dp[0].upper() + dp[1:]
+    s = (s[0].upper() + s[1:]) if s else "NA"
+    return s, detail
 
 
 def resolve_cell(row, abx):
@@ -308,13 +339,15 @@ def extract_alerts(file_object):
             date = fmt_date(row[AST_DATE_COL] if len(row) > AST_DATE_COL else None)
             results = {a: resolve_cell(row, a) for a in CANON_ABBREVS}
             sex, neutered = parse_sex(row)
+            site_main, site_detail = clean_site(cell_str(row, AST_SITE_COL))
             meta = {
                 "Species": cell_str(row, AST_SPECIES_COL),
                 "Breed": cell_str(row, AST_BREED_COL),
                 "Sex": sex,
                 "Neutered": neutered,
                 "Sample": cell_str(row, AST_SAMPLE_COL),
-                "Site": cell_str(row, AST_SITE_COL),
+                "Site": site_main,
+                "Sample Site (Detailed)": site_detail,
             }
 
             alert_type, reason = None, None
@@ -391,7 +424,8 @@ def build_excel(df):
                     cell.fill = PatternFill("solid", fgColor=fills[key])
     widths = {"Date Received": 13, "CP Number": 12, "Clinic": 14,
               "Organism": 30, "Alert": 22, "Reason": 34, "Species": 11,
-              "Breed": 16, "Sex": 6, "Neutered": 10, "Sample": 13, "Site": 28}
+              "Breed": 16, "Sex": 6, "Neutered": 10, "Sample": 13, "Site": 22,
+              "Sample Site (Detailed)": 24}
     for j, name in enumerate(cols, 1):
         letter = ws.cell(1, j).column_letter
         ws.column_dimensions[letter].width = widths.get(name, 8)
@@ -406,14 +440,21 @@ def build_excel(df):
 # 5. SIDEBAR
 # ============================================================================
 with st.sidebar:
-    st.markdown(f"<h3 style='color:{OCHRE_800};font-size:1.3rem;font-weight:800;margin-bottom:0.5rem;'>What is flagged</h3>",
+    st.markdown(f"<h3 style='color:{OCHRE_800};font-size:1.3rem;font-weight:800;margin-bottom:0.7rem;'>Alerts</h3>",
                 unsafe_allow_html=True)
     st.markdown(
-        f"<span class='legend-chip' style='background:{STAPH_C};'></span>**Staphylococcus** &middot; OX1 / FOX30<br><br>"
-        f"<span class='legend-chip' style='background:{ECOLI_C};'></span>**E. coli** &middot; AMC30 / ENR5<br><br>"
-        f"<span class='legend-chip' style='background:{SALM_C};'></span>**Salmonella** &middot; any profile",
+        f"<div class='sb-row'><span class='legend-chip' style='background:{STAPH_C};'></span>"
+        f"<b>Staphylococcus</b> <span class='sb-tag'>Resistant</span>"
+        f"<span class='sb-sub'>OX1 / FOX30</span></div>"
+        f"<div class='sb-row'><span class='legend-chip' style='background:{ECOLI_C};'></span>"
+        f"<b>E. coli</b> <span class='sb-tag'>Resistant</span>"
+        f"<span class='sb-sub'>AMC30 / ENR5</span></div>"
+        f"<div class='sb-row'><span class='legend-chip' style='background:{SALM_C};'></span>"
+        f"<b>Salmonella</b> <span class='sb-tag'>All</span>"
+        f"<span class='sb-sub'>any profile</span></div>",
         unsafe_allow_html=True)
     st.divider()
+    st.markdown("<div class='sb-key'>Colour key</div>", unsafe_allow_html=True)
     st.markdown(
         f"<div style='color:{INK};font-size:0.98rem;line-height:2.1;'>"
         f"<span class='legend-chip' style='background:#C6EFCE;'></span>Susceptible (S)<br>"
@@ -487,20 +528,24 @@ if "alerts" in st.session_state:
 
             with st.container(border=True):
                 section("Flagged isolates")
-                f1, f2 = st.columns(2)
+                f1, f2, f3 = st.columns(3)
                 with f1:
                     pick_clinic = st.selectbox("Clinic", ["All clinics"] + sorted(df["Clinic"].unique()), key="a_clinic")
                 with f2:
                     pick_type = st.selectbox("Alert type", ["All types"] + sorted(df["Alert"].unique()), key="a_type")
+                with f3:
+                    pick_year = st.selectbox("Year", ["All years"] + sorted(df["Year"].unique()), key="a_year")
                 view = df.copy()
                 if pick_clinic != "All clinics":
                     view = view[view["Clinic"] == pick_clinic]
                 if pick_type != "All types":
                     view = view[view["Alert"] == pick_type]
+                if pick_year != "All years":
+                    view = view[view["Year"] == pick_year]
                 view = view.reset_index(drop=True)
                 view.index = range(1, len(view) + 1)
 
-                st.markdown(f"**{len(view)} isolate(s) shown** &nbsp;·&nbsp; scroll right for the full susceptibility profile")
+                st.markdown(f"**{len(view)} isolate(s) shown**")
                 show_cols = CORE_COLS + META_COLS + CANON_ABBREVS
                 st.dataframe(view[show_cols].style.map(sir_css, subset=CANON_ABBREVS),
                              use_container_width=True)
@@ -539,7 +584,7 @@ if "alerts" in st.session_state:
                                   title_font=dict(size=16, color=INK))
                 st.plotly_chart(figc, use_container_width=True, key="chart_clinic")
 
-            st.write("")
+            st.divider()
 
             # ---- Alerts over time (grouped by organism, hover shows R counts) ----
             with st.container(border=True):
@@ -553,12 +598,16 @@ if "alerts" in st.session_state:
                     breakdown = ALERT_BREAKDOWN[atype]
                     ht = "<b>" + name + ": %{y}</b>"
                     if breakdown:
+                        # Non-overlapping split so the parts add up to the total.
+                        a, b = breakdown
                         customdata = []
                         for y in years:
                             sub = df[(df["Year"] == y) & (df["Alert"] == atype)]
-                            customdata.append([int((sub[a] == "R").sum()) for a in breakdown])
-                        for i, a in enumerate(breakdown):
-                            ht += f"<br>{a} resistant: %{{customdata[{i}]}}"
+                            ra, rb = (sub[a] == "R"), (sub[b] == "R")
+                            customdata.append([int((ra & rb).sum()), int((ra & ~rb).sum()), int((~ra & rb).sum())])
+                        ht += (f"<br>{a} + {b}: %{{customdata[0]}}"
+                               f"<br>{a} only: %{{customdata[1]}}"
+                               f"<br>{b} only: %{{customdata[2]}}")
                         figt.add_bar(x=years, y=counts, name=name, marker_color=color,
                             customdata=customdata, hovertemplate=ht + "<extra></extra>")
                     else:
@@ -574,7 +623,7 @@ if "alerts" in st.session_state:
                 figt.update_yaxes(title_font=dict(size=16, color=INK))
                 st.plotly_chart(figt, use_container_width=True, key="chart_time")
 
-            st.write("")
+            st.divider()
 
             # ---- Alerts by species (hover: breakdown by organism) ----
             with st.container(border=True):
