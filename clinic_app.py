@@ -451,7 +451,7 @@ with st.sidebar:
         f"<span class='sb-sub'>AMC30 / ENR5</span></div>"
         f"<div class='sb-row'><span class='legend-chip' style='background:{SALM_C};'></span>"
         f"<b>Salmonella</b> <span class='sb-tag'>All</span>"
-        f"<span class='sb-sub'>any profile</span></div>",
+        f"<span class='sb-sub'>Any profile</span></div>",
         unsafe_allow_html=True)
     st.divider()
     st.markdown("<div class='sb-key'>Colour key</div>", unsafe_allow_html=True)
@@ -522,7 +522,7 @@ if "alerts" in st.session_state:
                 f"<div class='kpi' style='border-left:5px solid {SALM_C}'>"
                 f"<span class='kpi-tag'>All isolates</span><div class='kpi-body'>"
                 f"<div class='kpi-num'>{n_salm}</div>"
-                f"<div class='kpi-lab'>Salmonella</div><div class='kpi-sub'>any profile</div>"
+                f"<div class='kpi-lab'>Salmonella</div><div class='kpi-sub'>Any profile</div>"
                 f"</div></div>", unsafe_allow_html=True)
             st.write("")
 
