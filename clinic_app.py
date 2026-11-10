@@ -909,10 +909,11 @@ if "alerts" in st.session_state:
                         xb = [int(v) for v in b_counts.values]
                         b_cust = [[_org_breakdown(df[(df["Species"] == host) &
                                                      (df["Breed"] == breed)])] for breed in yb]
+                        n_an = len(sub)
                         st.markdown(
                             f"<div style='color:{OCHRE_800};font-size:1.05rem;font-weight:800;"
                             f"margin:0.5rem 0 0.15rem;'>{host} breeds "
-                            f"<span style='font-weight:600;'>({len(sub)} animals)</span></div>",
+                            f"<span style='font-weight:600;'>({n_an} animal{'s' if n_an != 1 else ''})</span></div>",
                             unsafe_allow_html=True)
                         figb = go.Figure(go.Bar(orientation="h", y=yb, x=xb, marker_color=OCHRE_800,
                             marker_line_width=0, text=xb, textposition="outside",
