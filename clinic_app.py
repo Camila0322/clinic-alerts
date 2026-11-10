@@ -33,18 +33,18 @@ ECOLI_C = "#c47050"   # dimmed mid ochre
 SALM_C = "#e6bda9"    # dimmed light ochre
 
 ALERT_COLORS = {
-    "Staphylococcus (OX/FOX)": STAPH_C,
-    "E. coli (AMC/ENR)": ECOLI_C,
+    "Staphylococcus": STAPH_C,
+    "E. coli": ECOLI_C,
     "Salmonella": SALM_C,
 }
 
 # Full organism names for legends and hovers.
 ALERT_FULL = {
-    "Staphylococcus (OX/FOX)": "Staphylococcus",
-    "E. coli (AMC/ENR)": "E. coli",
+    "Staphylococcus": "Staphylococcus",
+    "E. coli": "E. coli",
     "Salmonella": "Salmonella",
 }
-ALERT_ORDER = ["Staphylococcus (OX/FOX)", "E. coli (AMC/ENR)", "Salmonella"]
+ALERT_ORDER = ["Staphylococcus", "E. coli", "Salmonella"]
 
 def _load_logo(name="usyd_logo_white.png"):
     """Inline the USYD logo committed alongside this app as a data URI."""
@@ -213,8 +213,8 @@ USYD_CLINICS = {"UVTHS", "UVTHC"}
 
 # Per-type antibiotic breakdown shown on hover.
 ALERT_BREAKDOWN = {
-    "Staphylococcus (OX/FOX)": ["OX1", "FOX30"],
-    "E. coli (AMC/ENR)": ["AMC30", "ENR5"],
+    "Staphylococcus": ["OX1", "FOX30"],
+    "E. coli": ["AMC30", "ENR5"],
     "Salmonella": [],
 }
 
@@ -585,12 +585,12 @@ def extract_alerts(file_object):
             if genus == "escherichia" and "coli" in org.lower():
                 hits = [a for a in ("AMC30", "ENR5") if results[a] == "R"]
                 if hits:
-                    alert_type = "E. coli (AMC/ENR)"
+                    alert_type = "E. coli"
                     reason = "Resistant to " + " and ".join(ABX_FULL.get(a, a) for a in hits)
             elif genus == "staphylococcus":
                 hits = [a for a in ("OX1", "FOX30") if results[a] == "R"]
                 if hits:
-                    alert_type = "Staphylococcus (OX/FOX)"
+                    alert_type = "Staphylococcus"
                     reason = "Resistant to " + " and ".join(ABX_FULL.get(a, a) for a in hits)
             elif genus == "salmonella":
                 alert_type = "Salmonella"
@@ -682,10 +682,10 @@ with st.sidebar:
     st.markdown(
         f"<div class='sb-row'><span class='legend-chip' style='background:{STAPH_C};'></span>"
         f"<b>Staphylococcus</b> <span class='sb-tag'>Resistant</span>"
-        f"<span class='sb-sub'>OX1 / FOX30</span></div>"
+        f"<span class='sb-sub'>Oxacillin / Cefoxitin</span></div>"
         f"<div class='sb-row'><span class='legend-chip' style='background:{ECOLI_C};'></span>"
         f"<b>E. coli</b> <span class='sb-tag'>Resistant</span>"
-        f"<span class='sb-sub'>AMC30 / ENR5</span></div>"
+        f"<span class='sb-sub'>Amoxicillin-clavulanate / Enrofloxacin</span></div>"
         f"<div class='sb-row'><span class='legend-chip' style='background:{SALM_C};'></span>"
         f"<b>Salmonella</b> <span class='sb-tag'>All</span>"
         f"<span class='sb-sub'>Any profile</span></div>",
@@ -735,8 +735,8 @@ if "alerts" in st.session_state:
         # ================= TAB 1: ALERTS (the actionable list) =============
         with tab_alerts:
             n_total = len(df)
-            n_staph = int((df["Alert"] == "Staphylococcus (OX/FOX)").sum())
-            n_ecoli = int((df["Alert"] == "E. coli (AMC/ENR)").sum())
+            n_staph = int((df["Alert"] == "Staphylococcus").sum())
+            n_ecoli = int((df["Alert"] == "E. coli").sum())
             n_salm = int((df["Alert"] == "Salmonella").sum())
             k1, k2, k3, k4 = st.columns(4)
             k1.markdown(
@@ -747,13 +747,13 @@ if "alerts" in st.session_state:
                 f"<div class='kpi' style='border-left:5px solid {STAPH_C}'>"
                 f"<span class='kpi-tag'>Resistant</span><div class='kpi-body'>"
                 f"<div class='kpi-num'>{n_staph}</div>"
-                f"<div class='kpi-lab'>Staphylococcus</div><div class='kpi-sub'>OX1 / FOX30</div>"
+                f"<div class='kpi-lab'>Staphylococcus</div><div class='kpi-sub'>Oxacillin / Cefoxitin</div>"
                 f"</div></div>", unsafe_allow_html=True)
             k3.markdown(
                 f"<div class='kpi' style='border-left:5px solid {ECOLI_C}'>"
                 f"<span class='kpi-tag'>Resistant</span><div class='kpi-body'>"
                 f"<div class='kpi-num'>{n_ecoli}</div>"
-                f"<div class='kpi-lab'>E. coli</div><div class='kpi-sub'>AMC30 / ENR5</div>"
+                f"<div class='kpi-lab'>E. coli</div><div class='kpi-sub'>Amoxicillin-clavulanate / Enrofloxacin</div>"
                 f"</div></div>", unsafe_allow_html=True)
             k4.markdown(
                 f"<div class='kpi' style='border-left:5px solid {SALM_C}'>"
@@ -840,14 +840,15 @@ if "alerts" in st.session_state:
                     if breakdown:
                         # Non-overlapping split so the parts add up to the total.
                         a, b = breakdown
+                        fa, fb = ABX_FULL.get(a, a), ABX_FULL.get(b, b)
                         customdata = []
                         for y in years:
                             sub = df[(df["Year"] == y) & (df["Alert"] == atype)]
                             ra, rb = (sub[a] == "R"), (sub[b] == "R")
                             customdata.append([int((ra & rb).sum()), int((ra & ~rb).sum()), int((~ra & rb).sum())])
-                        ht += (f"<br>{a} + {b}: %{{customdata[0]}}"
-                               f"<br>{a} only: %{{customdata[1]}}"
-                               f"<br>{b} only: %{{customdata[2]}}")
+                        ht += (f"<br>{fa} + {fb}: %{{customdata[0]}}"
+                               f"<br>{fa} only: %{{customdata[1]}}"
+                               f"<br>{fb} only: %{{customdata[2]}}")
                         figt.add_bar(x=years, y=counts, name=name, marker_color=color,
                             customdata=customdata, hovertemplate=ht + "<extra></extra>")
                     else:
