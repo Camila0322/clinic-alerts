@@ -483,6 +483,9 @@ def normalize_organism(org):
     o = re.sub(r'\s+', ' ', str(org)).strip()
     if not o or o.upper() in ("NA", "N/A"):
         return "NA"
+    # Any spelling of (pseud)(o)(-/ )inte(r)medius -> pseudintermedius (S. intermedius group).
+    o = re.sub(r'pseud[o]?[\s\-]*inte[r]?medius', 'pseudintermedius', o, flags=re.IGNORECASE)
+    o = re.sub(r'(staph\w*\s+)inte[r]?medius\b', r'\1pseudintermedius', o, flags=re.IGNORECASE)
     words = o.split()
     if len(words) >= 3 and _TRAIL_CODE.match(words[-1]):
         words = words[:-1]
@@ -913,10 +916,11 @@ if "alerts" in st.session_state:
                             textfont=dict(size=16, color=INK), cliponaxis=False, customdata=b_cust,
                             hovertemplate="<b>%{y}</b><br>Animals: %{x}"
                                           "<br><br><b>Organisms flagged</b><br>%{customdata[0]}<extra></extra>"))
-                        style_fig(figb, max(160, 34 * len(yb)), bottom=30)
+                        style_fig(figb, max(180, 40 * len(yb)) + 10, bottom=30)
                         figb.update_layout(xaxis_title="<b>Number of animals</b>", yaxis_title="")
                         figb.update_xaxes(range=[0, (max(xb) if xb else 1) * 1.2], dtick=1,
                                           title_font=dict(size=16, color=INK))
+                        figb.update_yaxes(type="category", tickmode="linear", automargin=True)
                         st.plotly_chart(figb, use_container_width=True, key=f"chart_breed_{host}")
                 else:
                     st.info("No host-species demographic data available.")
