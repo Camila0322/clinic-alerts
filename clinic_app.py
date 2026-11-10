@@ -440,6 +440,44 @@ def normalize_species(species):
     return s.title()
 
 
+# Bacterial isolate name normalization: fixes spelling variants (and casing) so the
+# same organism does not appear as several isolate types. Genus misspellings also
+# matter for the alert rules, which match on the genus. Edit these maps as needed.
+GENUS_FIX = {
+    "staphyloccus": "Staphylococcus", "staphylococus": "Staphylococcus",
+    "staphyloccocus": "Staphylococcus", "staphylococccus": "Staphylococcus",
+    "streptococccus": "Streptococcus", "streptoccocus": "Streptococcus",
+    "streptoccoccus": "Streptococcus", "streptococus": "Streptococcus",
+    "pseudomona": "Pseudomonas", "pseudomonos": "Pseudomonas",
+    "escherchia": "Escherichia", "echerichia": "Escherichia",
+    "enterococccus": "Enterococcus", "enterococus": "Enterococcus",
+}
+SPECIES_FIX = {"dysagalactiae": "dysgalactiae", "pseudointermedius": "pseudintermedius"}
+# Old name -> current name, by genus (S. intermedius group in companion animals).
+SPECIES_MERGE = {("staphylococcus", "intermedius"): "pseudintermedius"}
+
+
+def normalize_organism(org):
+    if org is None:
+        return "NA"
+    o = re.sub(r'\s+', ' ', str(org)).strip()
+    if not o or o.upper() in ("NA", "N/A"):
+        return "NA"
+    words = o.split()
+    genus = GENUS_FIX.get(words[0].lower(), words[0].capitalize())
+    gkey = genus.lower()
+    out = [genus]
+    for i, w in enumerate(words[1:]):
+        parts = []
+        for p in w.split("/"):          # species may be slash-joined alternatives
+            pl = SPECIES_FIX.get(p.lower(), p.lower())
+            if i == 0:
+                pl = SPECIES_MERGE.get((gkey, pl), pl)
+            parts.append(pl)
+        out.append("/".join(parts))
+    return " ".join(out)
+
+
 def resolve_cell(row, abx):
     """S / I / R / INTR / NA for one antibiotic, from the (measurement, interp) pair."""
     mi, si = meas_col(abx), interp_col(abx)
@@ -501,8 +539,8 @@ def extract_alerts(file_object):
             if clinic not in USYD_CLINICS:
                 continue
 
-            org = str(row[AST_ISOLATE_COL]).strip()
-            genus = org.split()[0].lower() if org else ""
+            org = normalize_organism(str(row[AST_ISOLATE_COL]).strip())
+            genus = org.split()[0].lower() if org and org != "NA" else ""
             cp = normalize_cp(row[AST_CP_COL])
             date = fmt_date(row[AST_DATE_COL] if len(row) > AST_DATE_COL else None)
             results = {a: resolve_cell(row, a) for a in CANON_ABBREVS}
@@ -539,7 +577,7 @@ def extract_alerts(file_object):
                     "Date Received": date,
                     "CP Number": f"CP {cp}" if cp else "NA",
                     "Clinic": clinic,
-                    "Organism": org.capitalize(),
+                    "Organism": org,
                     "Alert": alert_type,
                     "Reason": reason,
                 }
