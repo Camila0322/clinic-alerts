@@ -586,12 +586,12 @@ def extract_alerts(file_object):
                 hits = [a for a in ("AMC30", "ENR5") if results[a] == "R"]
                 if hits:
                     alert_type = "E. coli (AMC/ENR)"
-                    reason = "Resistant to " + " and ".join(hits)
+                    reason = "Resistant to " + " and ".join(ABX_FULL.get(a, a) for a in hits)
             elif genus == "staphylococcus":
                 hits = [a for a in ("OX1", "FOX30") if results[a] == "R"]
                 if hits:
                     alert_type = "Staphylococcus (OX/FOX)"
-                    reason = "Resistant to " + " and ".join(hits) + " (methicillin resistance)"
+                    reason = "Resistant to " + " and ".join(ABX_FULL.get(a, a) for a in hits)
             elif genus == "salmonella":
                 alert_type = "Salmonella"
                 reason = "Any profile"
