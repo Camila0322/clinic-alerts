@@ -248,10 +248,53 @@ def parse_sex(row):
     return sex, neutered
 
 
+# Different wordings for the same anatomical site, collapsed onto one label.
+# Keys are lowercase; add or adjust entries here as Kate confirms them.
+SITE_SYNONYMS = {
+    "foot": "Foot", "feet": "Foot",
+    "belly": "Abdomen", "ventrum": "Abdomen",
+    "back": "Dorsum", "dorsum": "Dorsum",
+    "axilla": "Axilla", "axila": "Axilla",
+    "nail bed": "Nail bed", "nailbed": "Nail bed",
+}
+
+# Anatomical direction / plane words. When one of these sits in front of a site word
+# ("Ventral abdomen", "Dorsal back", "Lateral carpus") it is a modifier, not the site:
+# the word after it is the site, and the direction moves into the detailed column.
+# Laterality (left/right) is handled here too. A direction word on its own (bare
+# "Ventral", with no site word after it) is left untouched.
+SITE_MODIFIERS = {
+    "lt": "Left", "rt": "Right",
+    "left": "Left", "right": "Right", "bilateral": "Bilateral",
+    "ventral": "Ventral", "dorsal": "Dorsal", "lateral": "Lateral",
+    "medial": "Medial", "cranial": "Cranial", "caudal": "Caudal",
+    "rostral": "Rostral", "proximal": "Proximal", "distal": "Distal",
+}
+_MOD_RE = re.compile(r'\b(' + '|'.join(SITE_MODIFIERS) + r')\b', flags=re.IGNORECASE)
+
+# Words describing a lesion / finding rather than an anatomical site. When the main
+# part of the field is only these ("abscess + discharging sinus (skin)") and a real
+# site sits in the brackets, the bracket is the site and the lesion goes to detail.
+LESION_WORDS = {
+    "abscess", "sinus", "discharging", "draining", "discharge", "mass", "lesion",
+    "wound", "ulcer", "ulcerated", "nodule", "swelling", "cyst", "fistula", "pustule",
+    "pus", "exudate", "lump", "growth", "tract", "scab", "crust", "erosion", "papule",
+}
+_LESION_SPLIT = re.compile(r'[+&/,;]|\band\b', flags=re.IGNORECASE)
+
+
+def _is_lesion_only(text):
+    toks = [w.strip(".-':").lower() for w in _LESION_SPLIT.sub(' ', text).split()]
+    toks = [w for w in toks if w]
+    return bool(toks) and all(w in LESION_WORDS for w in toks)
+
+
 def clean_site(raw):
-    """Split site into main site + detail, mirroring the original AST pipeline:
-    a parenthetical (or the text after the first separator) becomes the detail."""
-    s = raw.strip() if raw else ""
+    """Main site + detail. A parenthetical or post-separator fragment becomes the
+    detail; direction words (ventral, dorsal, lateral...) move to the detail and the
+    word after them becomes the site; a lesion-only main with a real site in brackets
+    is swapped so the anatomical site is kept."""
+    s = str(raw).strip() if raw not in (None, "") else ""
     if not s or s.upper() in ("NA", "N/A"):
         return "NA", "NA"
     detail = "NA"
@@ -265,11 +308,68 @@ def clean_site(raw):
         parts = re.split(r'[,/:\-;|]', s, maxsplit=1)
         if len(parts) > 1:
             s = parts[0].strip()
-            dp = parts[1].strip()
+            dp = re.sub(r'[\)\]\}]+$', '', parts[1].strip()).strip()
             if dp:
                 detail = dp[0].upper() + dp[1:]
+    # If the main text is only a lesion and the brackets hold a real site, swap them.
+    if detail != "NA" and detail.strip().lower() not in SITE_MODIFIERS and _is_lesion_only(s):
+        lesion = re.sub(r'\s+', ' ', s).strip(' :.,-')
+        s, detail = detail, (lesion[0].upper() + lesion[1:] if lesion else "NA")
+    found = [SITE_MODIFIERS[w.lower()] for w in _MOD_RE.findall(s)]
+    stripped = re.sub(r'\s+', ' ', _MOD_RE.sub('', s)).strip(' -,')
+    mod_text = ", ".join(dict.fromkeys(found))         # keep order, drop repeats
+    if stripped and found:
+        # "Ventral abdomen" -> site is the word after the direction, direction to detail.
+        if detail == "NA":
+            detail = mod_text
+        else:
+            detail = mod_text + ", " + detail[0].lower() + detail[1:]
+        s = stripped
+    elif found and not stripped and detail != "NA":
+        # "Ventral (interdigital paws)" -> the real site is in the brackets; direction to detail.
+        s = detail
+        detail = mod_text
     s = (s[0].upper() + s[1:]) if s else "NA"
+    s = SITE_SYNONYMS.get(s.lower().strip(), s)
     return s, detail
+
+
+BREED_SYNONYMS = {
+    "labrador": "Labrador Retriever",
+    "english cocker spaniel": "Cocker Spaniel",
+    "dsh": "Domestic Shorthair",
+    "dlh": "Domestic Longhair",
+    "domestic short hair": "Domestic Shorthair",
+    "domestic long hair": "Domestic Longhair",
+    "staffy": "Staffordshire Bull Terrier",
+    "american staff terrier": "American Staffordshire Terrier",
+    "american staffy": "American Staffordshire Terrier",
+    "amstaff": "American Staffordshire Terrier",
+    "neopolitan mastiff": "Neapolitan Mastiff",
+}
+
+
+def normalize_breed(breed):
+    """Tidy a breed so variants match: title-case (capital first letter, rest lower),
+    standardise the crossbreed marker by dropping a trailing ' X', and map known
+    synonyms and abbreviations (DSH, Labrador, American Staff terrier...) to one name."""
+    if breed is None:
+        return "NA"
+    b = re.sub(r'\s+', ' ', str(breed)).strip()
+    if not b or b.upper() in ("NA", "N/A"):
+        return "NA"
+    base = re.sub(r'[\s(]*\b(x|cross|crossbreed)\b[\s)]*$', '', b, flags=re.IGNORECASE).strip()
+    return BREED_SYNONYMS.get(base.lower(), base.title())
+
+
+def normalize_species(species):
+    """Species in Title Case so 'CANINE' and 'canine' both read 'Canine'."""
+    if species is None:
+        return "NA"
+    s = re.sub(r'\s+', ' ', str(species)).strip()
+    if not s or s.upper() in ("NA", "N/A"):
+        return "NA"
+    return s.title()
 
 
 def resolve_cell(row, abx):
@@ -341,8 +441,8 @@ def extract_alerts(file_object):
             sex, neutered = parse_sex(row)
             site_main, site_detail = clean_site(cell_str(row, AST_SITE_COL))
             meta = {
-                "Species": cell_str(row, AST_SPECIES_COL),
-                "Breed": cell_str(row, AST_BREED_COL),
+                "Species": normalize_species(cell_str(row, AST_SPECIES_COL)),
+                "Breed": normalize_breed(cell_str(row, AST_BREED_COL)),
                 "Sex": sex,
                 "Neutered": neutered,
                 "Sample": cell_str(row, AST_SAMPLE_COL),
@@ -641,5 +741,39 @@ if "alerts" in st.session_state:
                 figs.update_xaxes(range=[0, (max(xs) if xs else 1) * 1.2],
                                   title_font=dict(size=16, color=INK))
                 st.plotly_chart(figs, use_container_width=True, key="chart_species")
+
+            st.divider()
+
+            # ---- Breed prevalence by host species (one bar chart per species) ----
+            with st.container(border=True):
+                section("Breed prevalence by host species")
+                st.caption("One count per flagged animal.")
+                unique_demo = df.drop_duplicates(subset=["CP Number"])
+                host_species = [s for s in unique_demo["Species"].unique() if s not in ("NA", "nan")]
+                if host_species:
+                    for host in host_species:
+                        sub = unique_demo[unique_demo["Species"] == host]
+                        b_counts = (sub[sub["Breed"] != "NA"]["Breed"]
+                                    .value_counts().sort_values(ascending=True))
+                        if b_counts.empty:
+                            continue
+                        yb = b_counts.index.tolist()
+                        xb = [int(v) for v in b_counts.values]
+                        st.markdown(
+                            f"<div style='color:{OCHRE_800};font-size:1.05rem;font-weight:800;"
+                            f"margin:0.5rem 0 0.15rem;'>{host} breeds "
+                            f"<span style='font-weight:600;'>({len(sub)} animals)</span></div>",
+                            unsafe_allow_html=True)
+                        figb = go.Figure(go.Bar(orientation="h", y=yb, x=xb, marker_color=OCHRE_800,
+                            marker_line_width=0, text=xb, textposition="outside",
+                            textfont=dict(size=16, color=INK), cliponaxis=False,
+                            hovertemplate="<b>%{y}</b><br>Animals: %{x}<extra></extra>"))
+                        style_fig(figb, max(160, 34 * len(yb)), bottom=30)
+                        figb.update_layout(xaxis_title="<b>Number of animals</b>", yaxis_title="")
+                        figb.update_xaxes(range=[0, (max(xb) if xb else 1) * 1.2], dtick=1,
+                                          title_font=dict(size=16, color=INK))
+                        st.plotly_chart(figb, use_container_width=True, key=f"chart_breed_{host}")
+                else:
+                    st.info("No host-species demographic data available.")
 else:
     st.info("Upload the AST logging sheet to begin.")
