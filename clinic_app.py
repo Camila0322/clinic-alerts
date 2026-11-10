@@ -184,6 +184,19 @@ CANON_ABBREVS = [
     "TIC75", "TIM85", "S5", "CN 120", "RD5", "FA10", "AN30", "IPM10", "VA30",
 ]
 
+# Disk code -> full antibiotic name for display (clinicians don't read disk codes).
+ABX_FULL = {
+    "AM10": "Ampicillin", "AMC30": "Amoxicillin-clavulanate", "CZN 30": "Cefazolin",
+    "CL30": "Cefalexin", "CAZ30": "Ceftazidime", "CVN30": "Cefovecin", "DO30": "Doxycycline",
+    "SXT": "Trimethoprim-sulfamethoxazole", "ENR5": "Enrofloxacin", "MAR": "Marbofloxacin",
+    "GM 10": "Gentamicin", "C30": "Chloramphenicol", "P10": "Penicillin",
+    "F/M300": "Nitrofurantoin", "N30": "Neomycin", "OX1": "Oxacillin", "FOX30": "Cefoxitin",
+    "CC2": "Clindamycin", "E15": "Erythromycin", "TIC75": "Ticarcillin",
+    "TIM85": "Ticarcillin-clavulanate", "S5": "Streptomycin", "CN 120": "Gentamicin (high-level)",
+    "RD5": "Rifampicin", "FA10": "Fusidic acid", "AN30": "Amikacin", "IPM10": "Imipenem",
+    "VA30": "Vancomycin",
+}
+
 # Antibiotics that drive the alert rules.
 TRIGGER_ABX = ["AMC30", "ENR5", "OX1", "FOX30"]
 
@@ -615,10 +628,14 @@ def build_excel(df):
     hborder = Border(bottom=Side(style="medium", color="E64626"))
     fills = {"R": "FFC7CE", "I": "FFEB9C", "S": "C6EFCE", "INTR": "BFE3F7"}
     for j, name in enumerate(cols, 1):
-        c = ws.cell(1, j, name)
+        is_abx = name in CANON_ABBREVS
+        c = ws.cell(1, j, ABX_FULL.get(name, name) if is_abx else name)
         c.font = hfont
         c.border = hborder
-        c.alignment = Alignment(horizontal="left", vertical="center")
+        if is_abx:   # full drug name, rotated so the sheet stays compact
+            c.alignment = Alignment(text_rotation=90, horizontal="center", vertical="bottom")
+        else:
+            c.alignment = Alignment(horizontal="left", vertical="center")
     for i, (_, row) in enumerate(df.iterrows(), start=2):
         for j, name in enumerate(cols, 1):
             v = row[name]
@@ -634,8 +651,9 @@ def build_excel(df):
               "Sample Site (Detailed)": 24}
     for j, name in enumerate(cols, 1):
         letter = ws.cell(1, j).column_letter
-        ws.column_dimensions[letter].width = widths.get(name, 8)
-    ws.row_dimensions[1].height = 22
+        ws.column_dimensions[letter].width = 5.2 if name in CANON_ABBREVS else widths.get(name, 8)
+    abx_hdr_len = max([len(ABX_FULL.get(a, a)) for a in CANON_ABBREVS if a in cols] + [0])
+    ws.row_dimensions[1].height = min(max(abx_hdr_len * 6.2, 22), 215)
     ws.freeze_panes = "D2"  # keep Date / CP Number / Clinic visible while scrolling
     buf = io.BytesIO()
     wb.save(buf)
@@ -753,8 +771,9 @@ if "alerts" in st.session_state:
 
                 st.markdown(f"**{len(view)} isolate(s) shown**")
                 show_cols = CORE_COLS + META_COLS + CANON_ABBREVS
-                st.dataframe(view[show_cols].style.map(sir_css, subset=CANON_ABBREVS),
-                             use_container_width=True)
+                shown = view[show_cols].rename(columns={c: ABX_FULL.get(c, c) for c in CANON_ABBREVS})
+                subset_full = [ABX_FULL.get(c, c) for c in CANON_ABBREVS]
+                st.dataframe(shown.style.map(sir_css, subset=subset_full), use_container_width=True)
 
                 fname = f"Clinic_Alerts_{datetime.utcnow().strftime('%Y%m%d')}.xlsx"
                 st.download_button("Download full record (Excel)", build_excel(view), fname,
@@ -851,6 +870,14 @@ if "alerts" in st.session_state:
             st.divider()
 
             # ---- Breed prevalence by host species (one bar chart per species) ----
+            def _org_breakdown(frame, top=6):
+                """Organisms flagged in a chart slice, as a hover list with counts."""
+                vc = frame["Organism"].value_counts()
+                items = [f"{name} ({int(c)})" for name, c in vc.items()][:top]
+                if len(vc) > top:
+                    items.append(f"+{len(vc) - top} more")
+                return "<br>".join(items) if items else "—"
+
             with st.container(border=True):
                 section("Breed prevalence by host species")
                 st.caption("One count per flagged animal.")
@@ -865,6 +892,8 @@ if "alerts" in st.session_state:
                             continue
                         yb = b_counts.index.tolist()
                         xb = [int(v) for v in b_counts.values]
+                        b_cust = [[_org_breakdown(df[(df["Species"] == host) &
+                                                     (df["Breed"] == breed)])] for breed in yb]
                         st.markdown(
                             f"<div style='color:{OCHRE_800};font-size:1.05rem;font-weight:800;"
                             f"margin:0.5rem 0 0.15rem;'>{host} breeds "
@@ -872,8 +901,9 @@ if "alerts" in st.session_state:
                             unsafe_allow_html=True)
                         figb = go.Figure(go.Bar(orientation="h", y=yb, x=xb, marker_color=OCHRE_800,
                             marker_line_width=0, text=xb, textposition="outside",
-                            textfont=dict(size=16, color=INK), cliponaxis=False,
-                            hovertemplate="<b>%{y}</b><br>Animals: %{x}<extra></extra>"))
+                            textfont=dict(size=16, color=INK), cliponaxis=False, customdata=b_cust,
+                            hovertemplate="<b>%{y}</b><br>Animals: %{x}"
+                                          "<br><br><b>Organisms flagged</b><br>%{customdata[0]}<extra></extra>"))
                         style_fig(figb, max(160, 34 * len(yb)), bottom=30)
                         figb.update_layout(xaxis_title="<b>Number of animals</b>", yaxis_title="")
                         figb.update_xaxes(range=[0, (max(xb) if xb else 1) * 1.2], dtick=1,
