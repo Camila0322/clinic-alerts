@@ -641,7 +641,8 @@ def build_excel(df):
     fills = {"R": "FFC7CE", "I": "FFEB9C", "S": "C6EFCE", "INTR": "BFE3F7"}
     for j, name in enumerate(cols, 1):
         is_abx = name in CANON_ABBREVS
-        c = ws.cell(1, j, ABX_FULL.get(name, name) if is_abx else name)
+        header = ABX_FULL.get(name, name) if is_abx else ("Host species" if name == "Species" else name)
+        c = ws.cell(1, j, header)
         c.font = hfont
         c.border = hborder
         if is_abx:   # full drug name, rotated so the sheet stays compact
@@ -783,7 +784,9 @@ if "alerts" in st.session_state:
 
                 st.markdown(f"**{len(view)} isolate(s) shown**")
                 show_cols = CORE_COLS + META_COLS + CANON_ABBREVS
-                shown = view[show_cols].rename(columns={c: ABX_FULL.get(c, c) for c in CANON_ABBREVS})
+                rename_map = {c: ABX_FULL.get(c, c) for c in CANON_ABBREVS}
+                rename_map["Species"] = "Host species"
+                shown = view[show_cols].rename(columns=rename_map)
                 subset_full = [ABX_FULL.get(c, c) for c in CANON_ABBREVS]
                 st.dataframe(shown.style.map(sir_css, subset=subset_full), use_container_width=True)
 
