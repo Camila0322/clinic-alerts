@@ -885,6 +885,66 @@ if "alerts" in st.session_state:
 
             st.divider()
 
+            # ---- Alerts by sample site (hover: breakdown by alert type) ----
+            with st.container(border=True):
+                section("Alerts by sample site")
+
+                def _sample_site(row):
+                    # The anatomical site, or the sample type when there is no site
+                    # (so urine, fluid, etc. still appear rather than dropping out).
+                    if row["Site"] not in ("NA", "nan", ""):
+                        return row["Site"]
+                    parts = str(row["Sample"]).split(":")[0].split()
+                    base = parts[0].capitalize() if parts else "NA"
+                    return base if base.upper() not in ("NA", "") else "NA"
+
+                ss = df.apply(_sample_site, axis=1)
+                sc = ss[ss != "NA"].value_counts().sort_values(ascending=True)
+                ys, xs = sc.index.tolist(), [int(v) for v in sc.values]
+                groups = [[int(((ss == site) & (df["Alert"] == t)).sum()) for t in ALERT_ORDER]
+                          for site in ys]
+                ht, cust = _breakdown_hover(groups)
+                figss = go.Figure(go.Bar(orientation="h", y=ys, x=xs, marker_color=OCHRE_600,
+                    marker_line_width=0, text=xs, textposition="outside",
+                    textfont=dict(size=16, color=INK), cliponaxis=False,
+                    customdata=cust, hovertemplate=ht))
+                style_fig(figss, max(200, 38 * len(ys)), bottom=34)
+                figss.update_layout(xaxis_title="<b>Number of alerts</b>", yaxis_title="")
+                figss.update_xaxes(range=[0, (max(xs) if xs else 1) * 1.2], dtick=1,
+                                   title_font=dict(size=16, color=INK))
+                figss.update_yaxes(type="category", tickmode="linear", automargin=True)
+                st.plotly_chart(figss, use_container_width=True, key="chart_samplesite")
+
+            st.divider()
+
+            # ---- Alerts by sample type (hover: breakdown by alert type) ----
+            with st.container(border=True):
+                section("Alerts by sample type")
+
+                def _sample_type(s):
+                    # Base collection type: "URINE: CYSTO" -> Urine, "SWAB and SCREWS" -> Swab.
+                    base = str(s).split(":")[0].split(" and ")[0].strip().split()
+                    return base[0].capitalize() if base and base[0].upper() not in ("NA", "") else "NA"
+
+                stp = df["Sample"].apply(_sample_type)
+                tc = stp[stp != "NA"].value_counts().sort_values(ascending=True)
+                ys, xs = tc.index.tolist(), [int(v) for v in tc.values]
+                groups = [[int(((stp == t_) & (df["Alert"] == t)).sum()) for t in ALERT_ORDER]
+                          for t_ in ys]
+                ht, cust = _breakdown_hover(groups)
+                figst = go.Figure(go.Bar(orientation="h", y=ys, x=xs, marker_color=OCHRE_600,
+                    marker_line_width=0, text=xs, textposition="outside",
+                    textfont=dict(size=16, color=INK), cliponaxis=False,
+                    customdata=cust, hovertemplate=ht))
+                style_fig(figst, max(200, 46 * len(ys)), bottom=34)
+                figst.update_layout(xaxis_title="<b>Number of alerts</b>", yaxis_title="")
+                figst.update_xaxes(range=[0, (max(xs) if xs else 1) * 1.2], dtick=1,
+                                   title_font=dict(size=16, color=INK))
+                figst.update_yaxes(type="category", tickmode="linear", automargin=True)
+                st.plotly_chart(figst, use_container_width=True, key="chart_sampletype")
+
+            st.divider()
+
             # ---- Breed prevalence by host species (one bar chart per species) ----
             def _org_breakdown(frame, top=6):
                 """Organisms flagged in a chart slice, as a hover list with counts."""
